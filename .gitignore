@@ -1,0 +1,25 @@
+###################################
+# general ignore patterns
+###################################
+
+build/
+obj/
+*.o
+Debug*/
+Release*/
+*.mode*
+*.app/
+*.pyc
+.svn/
+
+# Visual Studio
+*.sdf
+*.opensdf
+*.suo
+ipch/
+
+# OSX
+**/.DS_Store
+.DS_Store
+*.swp
+*~.nib
