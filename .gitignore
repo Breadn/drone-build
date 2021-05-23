@@ -17,7 +17,7 @@ Release*/
 *.opensdf
 *.suo
 ipch/
-.vscode
+.vscode/
 
 # OSX
 **/.DS_Store
