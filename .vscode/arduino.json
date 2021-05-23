@@ -2,5 +2,6 @@
     "configuration": "cpu=atmega2560",
     "board": "arduino:avr:mega",
     "programmer": "arduino:avrispmkii",
-    "sketch": "main.ino"
+    "sketch": "main.ino",
+    "port": "/dev/tty.usbmodem14101"
 }
