@@ -24,3 +24,5 @@ ipch/
 .DS_Store
 *.swp
 *~.nib
+
+# hello this is a test
