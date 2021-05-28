@@ -1,4 +1,4 @@
-// C++ file for function definitions of Inertial Motion Unit
+// C++ file of function definitions for Inertial Motion Unit
 /* GY-521 setup & IMU_error function courtesy of (c) 2019 Dejan, https://howtomechatronics.com */
 
     /**
@@ -20,16 +20,18 @@
 
 // User includes
 #include "IMU.h"
-#include "MathTools.h"
 
 
 
-const int MPU_ADDR = 0x68;              // A0 pin set LOW
-const double GYRO_VOLTAGE = 5.0;
-const double NULL_VOLTAGE = 0.0;
-const double ACC_SEN = 16384.0;                 // Sensitivity for +/- 2 g
-const double GYRO_SEN = 131.0;                  // Sensitivity for +/- 250 deg/s
-const int CALIBRATION_QUALITY = 5000;            // Number of samples to take for calibration
+const int MPU_ADDR              = 0x68;            // A0 pin set LOW
+const double ACC_SEN            = 16384.0;         // Sensitivity for +/- 2 g
+const double GYRO_SEN           = 131.0;           // Sensitivity for +/- 250 deg/s
+const double ANGLE_BIAS         = 0.96;            // Bias for Gyro angle (1-BIAS for Accel angle)
+const int CALIBRATION_QUALITY   = 2000;            // Number of samples to take for calibration
+
+bool systemReady = true;
+
+double currentTime, previousTime, elapsedTime = 0;
 
 int16_t accelRaw_x, accelRaw_y, accelRaw_z;     // variables for accelerometer raw data
 int16_t gyroRaw_x, gyroRaw_y, gyroRaw_z;        //               gyroscope     raw data
@@ -37,22 +39,24 @@ int16_t tempRaw;                                //               temperature   r
 double accel_x, accel_y, accel_z;               // variables for accelerometer data
 double gyro_x, gyro_y, gyro_z;                  //               gyroscope     data
 double temp;                                    //               temperature   data
-double accelErr_x, accelErr_y, accelErr_z = 0;  // variables for accelerometer error
+double accelErr_x, accelErr_y = 0;              // variables for accelerometer error
 double gyroErr_x, gyroErr_y, gyroErr_z = 0;     //               gyroscope     error
 double ang_x, ang_y, ang_z = 0;                 // variables for angle
 
 
-void statusIMU() {
+bool statusIMU() {
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x75);
     Wire.endTransmission(true);
     Wire.requestFrom(MPU_ADDR, 1, true);
     if(Wire.available()) {
-        Serial.print("STATUS: OK | WHOAMI: 0x"); Serial.println(Wire.read(), HEX);
+        Serial.print("STATUS: OK   | WHOAMI: imu (0x"); Serial.print(Wire.read(), HEX); Serial.println(")");
     }
     else {
-        Serial.print("STATUS: N/OK");
+        Serial.println("STATUS: N/OK | WHOAMI: imu (0xERR)");
+        systemReady = false;
     }
+    return systemReady;
 }
 
 void beginIMU() {
@@ -61,9 +65,6 @@ void beginIMU() {
     Wire.write(0x6B);                   // PWR_MGMT_1 register (SLEEP)
     Wire.write(0x00);                   // Wake up MPU
     Wire.endTransmission();             // End transmission  
-
-    calibrateIMU();
-    delay(1000);
 
     //Serial.println("gX,gY,gZ");         // Serial plotter labels
 }
@@ -74,6 +75,7 @@ void readIMU() {
     Wire.endTransmission(false);            // False parameter indicates master will not release bus, allows master to send multiple transmissions to slave
     Wire.requestFrom(MPU_ADDR, 7*2, true);  // Master requests a total of 7*2=14 registers starting from MPU_ADDR (7 pairs for 7 measurements). True parameter releases bus
     
+    /* Read Accel Data */
     accelRaw_x = (uint16_t) Wire.read()<<8;    // reading registers: 0x3B (ACCEL_XOUT_H) 
     accelRaw_x |= Wire.read();                 //                    0x3C (ACCEL_XOUT_L)
     accelRaw_y = (uint16_t) Wire.read()<<8;    // reading registers: 0x3D (ACCEL_YOUT_H)
@@ -81,16 +83,20 @@ void readIMU() {
     accelRaw_z = (uint16_t) Wire.read()<<8;    // reading registers: 0x3F (ACCEL_ZOUT_H)
     accelRaw_z |= Wire.read();                 //                    0x40 (ACCEL_ZOUT_L)
     // For a range of +-2g, divide raw values by 16384, according to the datasheet
-    accel_x = accelRaw_x / ACC_SEN - accelErr_x;
-    accel_y = accelRaw_y / ACC_SEN - accelErr_y;
-    accel_z = accelRaw_z / ACC_SEN - accelErr_z;
+    accel_x = ( accelRaw_x / ACC_SEN );
+    accel_y = ( accelRaw_y / ACC_SEN );
+    accel_z = ( accelRaw_z / ACC_SEN );
 
-
+    /* Read Temp Data */
     tempRaw = (uint16_t) Wire.read()<<8;       // reading registers: 0x41 (TEMP_OUT_H)
     tempRaw |= Wire.read();                    //                    0x42 (TEMP_OUT_L)
     // Equation from documentaion [MPU-6000/MPU-6050 Register Map and Description, p.30]
     temp = tempRaw/340.00+36.53;
 
+    /* Read Gyro Data */
+    previousTime = currentTime;                         // Previous time is stored before the actual time read
+    currentTime = millis();                             // Current time actual time read
+    elapsedTime = (currentTime - previousTime) / 1000.; // Divide by 1000 to get seconds
     gyroRaw_x = (uint16_t) Wire.read()<<8;     // reading registers: 0x43 (GYRO_XOUT_H)
     gyroRaw_x |= Wire.read();                  //                    0x44 (GYRO_XOUT_L)
     gyroRaw_y = (uint16_t) Wire.read()<<8;     // reading registers: 0x45 (GYRO_YOUT_H)
@@ -101,44 +107,45 @@ void readIMU() {
     gyro_x = gyroRaw_x / GYRO_SEN - gyroErr_x;
     gyro_y = gyroRaw_y / GYRO_SEN - gyroErr_y;
     gyro_z = gyroRaw_z / GYRO_SEN - gyroErr_z;
-    
-    // USE DELTA TIMING IN MAIN
-    // delay(20);
 }
 
-void readAngle(long delta_T) {
-    ang_x += gyro_x * (delta_T/1000.);
-    ang_y += gyro_y * (delta_T/1000.);
-    ang_z += gyro_z * (delta_T/1000.);
+void readAngle() {
 
-    ang_x = fmod(ang_x, 360.0);
-    ang_y = fmod(ang_y, 360.0);
-    ang_z = fmod(ang_z, 360.0);
+    ang_x += ( gyro_x * (elapsedTime) ); //* ANGLE_BIAS) + ((atan(accel_y / sqrt(pow(accel_x, 2) + pow(accel_z, 2))) * (180. / PI) - accelErr_x) * (1.0-ANGLE_BIAS));
+    ang_y += ( gyro_y * (elapsedTime) ); //* ANGLE_BIAS) + ((atan(-1 * accel_x / sqrt(pow(accel_y, 2) + pow(accel_z, 2))) * (180. / PI) - accelErr_y) * (1.0-ANGLE_BIAS));
+    ang_z += ( gyro_z * (elapsedTime) );
+
+    //ang_x = fmod(ang_x, 360.0);
+    //ang_y = fmod(ang_y, 360.0);
+    //ang_z = fmod(ang_z, 360.0);
     
 
 }
 
 void printIMU() {
     // Accelerometer
-    /*Serial.print("aX:");   Serial.print(accelerometer_x);  Serial.print("\t");*/
-    /*Serial.print("aY:");   Serial.print(accelerometer_y);  Serial.print("\t");*/
-    /*Serial.print("aZ:");   Serial.print(accelerometer_z);  Serial.print("\t");*/
+    /*Serial.print("aX:"); Serial.print(accel_x);  Serial.print("\t");*/
+    /*Serial.print("aY:"); Serial.print(accel_y);  Serial.print("\t");*/
+    /*Serial.print("aZ:"); Serial.print(accel_z);  Serial.print("\t");*/
+    // Accel Angles
+    Serial.print(atan(accel_y / sqrt(pow(accel_x, 2) + pow(accel_z, 2))) * (180. / PI));      Serial.print("\t");
+    Serial.print(atan(-1 * accel_x / sqrt(pow(accel_y, 2) + pow(accel_z, 2))) * (180. / PI)); Serial.print("\t");
     // Gyroscope
-    /*Serial.print("gX:");   Serial.print(gyro_x);            Serial.print("\t");*/
-    /*Serial.print("gY:");   Serial.print(gyro_y);            Serial.print("\t");*/
-    /*Serial.print("gZ:");   Serial.print(gyro_z);            Serial.println();*/
-    // Angles
-    /*Serial.print("rX:");*/ Serial.print(ang_x);           Serial.print("\t");
-    /*Serial.print("rY:");*/ Serial.print(ang_y);           Serial.print("\t");
-    /*Serial.print("rZ:");*/ Serial.print(ang_z);           Serial.println();
+    /*Serial.print("gX:"); Serial.print(gyro_x);   Serial.print("\t");*/
+    /*Serial.print("gY:"); Serial.print(gyro_y);   Serial.print("\t");*/
+    /*Serial.print("gZ:"); Serial.print(gyro_z);   Serial.print("\t");*/
+    // Gyro Angles
+    /*Serial.print("rX:");*/ Serial.print(ang_x);    Serial.print("\t");
+    /*Serial.print("rY:");*/ Serial.print(ang_y);    Serial.print("\t");
+    /*Serial.print("rZ:");*/ Serial.print(ang_z);    Serial.println();
 }
 
 void calibrateIMU() {
-    // Note: Keep IMU in normal position during calibration
-    // Read accelerometer values 200 times
+    // Note: Keep IMU in normal position during calibration    
     Serial.println("Calibrating IMU... (Do not disturb!)");
-    int c = 0;
-    while (c < CALIBRATION_QUALITY) {
+
+    // Read accelerometer values
+    for(int i = 0; i < CALIBRATION_QUALITY; i++) {
         Wire.beginTransmission(MPU_ADDR);
         Wire.write(0x3B);
         Wire.endTransmission(false);
@@ -152,19 +159,18 @@ void calibrateIMU() {
         accelRaw_z |= Wire.read();                 //                    0x40 (ACCEL_ZOUT_L)
         accel_x = accelRaw_x / ACC_SEN;
         accel_y = accelRaw_y / ACC_SEN;
-        accel_z = accelRaw_z / ACC_SEN;
         // Sum all readings
-        accelErr_x += ((atan((accel_y) / sqrt(pow((accel_x), 2) + pow((accel_z), 2))) * 180 / PI));
-        accelErr_y += ((atan(-1 * (accel_x) / sqrt(pow((accel_y), 2) + pow((accel_z), 2))) * 180 / PI));
-        c++;
+        accelErr_x += atan(accel_y / sqrt(pow(accel_x, 2) + pow(accel_z, 2))) * (180. / PI);
+        accelErr_y += atan(-1 * accel_x / sqrt(pow(accel_y, 2) + pow(accel_z, 2))) * (180. / PI);
     }
     // Average sum to get error
+    // NOTE: The acceleration error is NOT general error of accelerometer, but for use in correcting ANGLE from acceleration
     accelErr_x /= CALIBRATION_QUALITY;
     accelErr_y /= CALIBRATION_QUALITY;
     
-    c = 0;
+    
     // Read gyro values 
-    while (c < CALIBRATION_QUALITY) {
+    for(int i = 0; i < CALIBRATION_QUALITY; i++) {
         Wire.beginTransmission(MPU_ADDR);
         Wire.write(0x43);
         Wire.endTransmission(false);
@@ -183,9 +189,8 @@ void calibrateIMU() {
         gyroErr_x += gyro_x;
         gyroErr_y += gyro_y;
         gyroErr_z += gyro_z;
-        c++;
     }
-    //Divide the sum by 200 to get the error value
+    // Average sum to get error
     gyroErr_x /= CALIBRATION_QUALITY;
     gyroErr_y /= CALIBRATION_QUALITY;
     gyroErr_z /= CALIBRATION_QUALITY;

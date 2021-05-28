@@ -1,8 +1,9 @@
-// Header file for function declarations of Inertial Motion Unit
-void statusIMU();
+// Header file of function declarations for Inertial Motion Unit
+bool statusIMU();
 void beginIMU();
+
 void readIMU();
-void readAngle(long DELTA_T);
+void readAngle();
 
 void printIMU();
 void calibrateIMU();
