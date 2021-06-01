@@ -36,7 +36,7 @@ void setup() {
   bool peripheralReady[PERIPHERAL_COUNT]{IMU_ready, ESCs_ready};
   
   for(int i=0; i<PERIPHERAL_COUNT; i++) {
-    Serial.print("\t* Peripheral: "); Serial.print(peripherals[i]); Serial.print(" | Status: "); (peripheralReady[i] ? Serial.println("OK") : Serial.println("N/OK"));
+    Serial.print(" * Peripheral: "); Serial.print(peripherals[i]); Serial.print(" | Status: "); (peripheralReady[i] ? Serial.println("OK") : Serial.println("N/OK"));
     if(!peripheralReady[i]) allSystems_ready = false;
   }
   if(allSystems_ready) Serial.println("      ^^^      All systems go!");
