@@ -18,7 +18,7 @@ const unsigned long DELTA_T = 20; // delta time period in ms
 unsigned long delta_r = 0;        // delta time record in ms
 
   bool IMU_ready;
-  bool ESCs_ready;
+  bool ESC_ready;
   bool allSystems_ready = true;
 
 void setup() {
@@ -29,11 +29,11 @@ void setup() {
   beginESC();
 
   IMU_ready = statusIMU();
-  ESCs_ready = statusESC();
+  ESC_ready = statusESC();
 
   
   String peripherals[PERIPHERAL_COUNT]{"IMU", "ESCs"};
-  bool peripheralReady[PERIPHERAL_COUNT]{IMU_ready, ESCs_ready};
+  bool peripheralReady[PERIPHERAL_COUNT]{IMU_ready, ESC_ready};
   
   for(int i=0; i<PERIPHERAL_COUNT; i++) {
     Serial.print(" * Peripheral: "); Serial.print(peripherals[i]); Serial.print(" | Status: "); (peripheralReady[i] ? Serial.println("OK") : Serial.println("N/OK"));
@@ -53,9 +53,14 @@ void loop() {
   if(millis() - delta_r >= DELTA_T && IMU_ready) {
     readIMU();
     readAngle();
-    printIMU();
+    //printIMU();
 
     delta_r += DELTA_T;
+  }
+
+  if(ESC_ready) {
+    readThrottle();
+    printThrottle();
   }
 
 }
